@@ -3,8 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>SafeDrive — Hệ thống cảnh báo mất tập trung khi lái xe</title>
-  <meta property="og:title" content="SafeDrive — Hệ thống cảnh báo mất tập trung khi lái xe">
+  <title>ADAS Guard — Hệ thống Giám sát Tập trung Lái xe (YOLOv12n Chuẩn Python Local)</title>
   <!-- ONNX Runtime Web chạy hoàn toàn trên trình duyệt người dùng -->
   <script src="https://cdn.jsdelivr.net/npm/onnxruntime-web/dist/ort.min.js"></script>
   <style>
@@ -37,7 +36,7 @@
     }
 
     header {
-      background: rgba(19, 28, 49, 0.92);
+      background: rgba(19, 28, 49, 0.9);
       border-bottom: 1px solid var(--border-solid);
       padding: 12px 24px;
       display: flex;
@@ -216,13 +215,13 @@
     }
 
     .hud-pill {
-      background: rgba(15, 23, 42, 0.85);
+      background: rgba(15, 23, 42, 0.82);
       backdrop-filter: blur(6px);
       border: 1px solid rgba(255, 255, 255, 0.15);
       padding: 6px 12px;
       border-radius: 8px;
       font-size: 0.82rem;
-      font-weight: 700;
+      font-weight: 600;
     }
 
     .snapshot-toast {
@@ -461,7 +460,7 @@
       height: 100%;
       width: 0%;
       background: var(--accent);
-      transition: width 0.08s linear;
+      transition: width 0.1s ease;
     }
 
     .log-container {
@@ -603,8 +602,8 @@
     <div class="brand">
       <div class="brand-icon">AI</div>
       <div>
-        <h1>Focus Guard — Giám sát Tập trung Lái xe (YOLOv12n 60FPS • Độ trễ &lt; 100ms)</h1>
-        <p>Tách luồng Render 60FPS độc lập • Bảng tra LUT 32-bit siêu tốc • Khử báo giả Argmax + EMA</p>
+        <h1>ADAS Guard — Giám sát Tập trung Lái xe (YOLOv12n Chuẩn Python Local)</h1>
+        <p>Chống rò rỉ bộ nhớ Tensor • Tiền xử lý Letterbox 640×640 chuẩn Ultralytics • Suy luận FP32 chính xác</p>
       </div>
     </div>
 
@@ -613,7 +612,7 @@
         <span id="model-dot" class="dot"></span>
         <span id="model-status-text">Mô hình: Đang nạp best.onnx...</span>
       </div>
-      <div class="badge" id="ep-badge">Tăng tốc: WebGPU / WASM SIMD</div>
+      <div class="badge">Chuẩn Letterbox 640×640 • FP32 WASM</div>
     </div>
   </header>
 
@@ -622,7 +621,7 @@
     <!-- CỘT TRÁI: MÀN HÌNH GIÁM SÁT & ĐIỀU KHIỂN CHÍNH -->
     <div class="card">
       <div class="card-header">
-        <div class="card-title">📹 Màn hình Giám sát Buồng lái Thời gian thực (60 FPS)</div>
+        <div class="card-title">📹 Màn hình Giám sát Buồng lái Thời gian thực</div>
         <div class="controls-grid">
           <label class="file-btn" title="Chọn file best.onnx từ máy tính của bạn">
             📂 Nạp file best.onnx
@@ -639,7 +638,7 @@
         <div id="flash-overlay" class="flash-overlay"></div>
 
         <div class="hud-top">
-          <div class="hud-pill" id="fps-pill" style="color: #6ee7b7;">⚡ 60 FPS | Độ trễ: -- ms</div>
+          <div class="hud-pill" id="fps-pill">⚡ 0 FPS | 0 ms</div>
           <div class="hud-pill" id="timer-pill">⏱️ Mất tập trung: 0.0s</div>
         </div>
 
@@ -671,7 +670,7 @@
           <input type="file" id="video-file-input" accept="video/*">
         </label>
 
-        <button id="color-order-btn" title="Đổi hệ màu RGB (chuẩn Ultralytics) hoặc BGR (OpenCV)">
+        <button id="color-order-btn" title="Đổi hệ màu RGB (chuẩn Ultralytics) hoặc BGR (nếu lúc train/test OpenCV không đổi sang RGB)">
           🎨 Hệ màu: RGB (Chuẩn)
         </button>
 
@@ -713,7 +712,7 @@
       <!-- Cài đặt Cảnh báo Âm thanh & Mô hình -->
       <div class="card">
         <div class="card-header">
-          <div class="card-title">🔊 Cài đặt Còi Báo động & Tối ưu Độ trễ</div>
+          <div class="card-title">🔊 Cài đặt Còi Báo động & Độ nhạy Nhận diện</div>
           <button id="test-sound-btn" class="danger-btn">🔔 Nghe thử còi</button>
         </div>
 
@@ -730,10 +729,10 @@
 
           <div class="setting-row">
             <div class="setting-label">
-              <span>Ngưỡng nhạy YOLO chung (Confidence)</span>
-              <span id="conf-val">40%</span>
+              <span>Ngưỡng nhạy YOLO (Confidence)</span>
+              <span id="conf-val">25%</span>
             </div>
-            <input type="range" id="conf-slider" min="15" max="85" step="5" value="40">
+            <input type="range" id="conf-slider" min="10" max="85" step="5" value="25">
           </div>
         </div>
 
@@ -741,9 +740,9 @@
           <div class="setting-row">
             <div class="setting-label">
               <span>Thời gian lỗi trước khi hú còi & chụp</span>
-              <span id="delay-val">1.5 giây</span>
+              <span id="delay-val">1.2 giây</span>
             </div>
-            <input type="range" id="alarm-delay-slider" min="0.2" max="5.0" step="0.1" value="1.5">
+            <input type="range" id="alarm-delay-slider" min="0.2" max="5.0" step="0.1" value="1.2">
           </div>
 
           <div class="setting-row">
@@ -759,7 +758,7 @@
       <!-- Biểu đồ 11 Nhãn trong best.onnx Thời gian thực -->
       <div class="card">
         <div class="card-header">
-          <div class="card-title">📊 11 Nhãn trong best.onnx (Bấm vào nút trạng thái để Bật/Tắt từng nhãn)</div>
+          <div class="card-title">📊 11 Nhãn trong best.onnx (Bấm vào nút trạng thái để đổi vai trò)</div>
           <button id="reset-roles-btn" style="padding:4px 8px; font-size:0.75rem;">🔄 Mặc định</button>
         </div>
         <div id="class-bars" class="class-list"></div>
@@ -828,22 +827,18 @@
 
   <script>
     // =========================================================================
-    // 1. TỐI ƯU HÓA ONNX RUNTIME (ĐA LUỒNG SIMD + WEBGPU ĐỂ ĐỘ TRỄ < 100MS)
+    // 1. CẤU HÌNH CHUẨN 11 NHÃN TỪ FILE best.onnx CỦA BẠN
+    // names: {0: '0', 1: 'close_eye', 2: 'correct', 3: 'dozing', 4: 'drinking',
+    //         5: 'face', 6: 'mobile', 7: 'radio', 8: 'talking', 9: 'work', 10: 'yawn'}
     // =========================================================================
-    if (typeof ort !== 'undefined' && ort.env && ort.env.wasm) {
-      ort.env.wasm.simd = true;
-      ort.env.wasm.numThreads = Math.min(8, navigator.hardwareConcurrency || 4);
-    }
-
     const DEFAULT_MODEL_PATH = './best.onnx';
     const INPUT_SIZE = 640;
-    const PIXEL_COUNT = INPUT_SIZE * INPUT_SIZE;
 
+    // Xóa cache nhãn cũ bị lệch thứ tự từ các phiên bản trước
     localStorage.removeItem('yolo_12_labels');
     localStorage.removeItem('yolov12_11_labels');
     localStorage.removeItem('yolov12_class_roles_v2');
     localStorage.removeItem('yolov12_class_roles_v3');
-    localStorage.removeItem('yolov12_class_roles_v4');
 
     const CLASS_LABELS = [
       "Nhãn 0 (Bỏ qua)",                // 0: '0'
@@ -859,6 +854,8 @@
       "Ngáp / Mệt mỏi (yawn)"           // 10: 'yawn'
     ];
 
+    // Bật đầy đủ cả 8 nhãn mất tập trung (1, 3, 4, 6, 7, 8, 9, 10) là 'danger'
+    // và 2 nhãn bình thường (2: 'correct', 5: 'face') là 'safe'
     const DEFAULT_ROLES = [
       'ignore', // 0: '0'
       'danger', // 1: 'close_eye'
@@ -873,28 +870,23 @@
       'danger'  // 10: 'yawn'
     ];
 
-    // Ngưỡng bảo vệ riêng cho các nhãn dễ báo giả ('mobile' = 6 và 'work' = 9 phải >= 55%)
-    const PER_CLASS_MIN_CONF = {
-      6: 0.55,
-      9: 0.55
-    };
-
-    let classRoles = JSON.parse(localStorage.getItem('yolov12_class_roles_v6')) || [...DEFAULT_ROLES];
+    let classRoles = JSON.parse(localStorage.getItem('yolov12_class_roles_v4')) || [...DEFAULT_ROLES];
     let alertLogs = JSON.parse(localStorage.getItem('yolo_violation_photos') || '[]');
 
-    const smoothedScores = new Float32Array(CLASS_LABELS.length);
-    const EMA_ALPHA = 0.42;
+    const SPECIFIC_GESTURE_IDS = new Set([1, 3, 4, 6, 7, 8, 10]);
 
     // DOM Elements
     const video = document.getElementById('webcam');
     const overlayCanvas = document.getElementById('overlay-canvas');
-    const overlayCtx = overlayCanvas.getContext('2d', { alpha: true });
+    const overlayCtx = overlayCanvas.getContext('2d');
     const prepCanvas = document.getElementById('prep-canvas');
-    const prepCtx = prepCanvas.getContext('2d', { willReadFrequently: true, alpha: false });
-    prepCtx.imageSmoothingEnabled = false;
+    const prepCtx = prepCanvas.getContext('2d', { willReadFrequently: true });
+    prepCtx.imageSmoothingEnabled = true;
+    prepCtx.imageSmoothingQuality = 'high';
 
     const viewport = document.getElementById('viewport');
     const flashOverlay = document.getElementById('flash-overlay');
+
     const modelDot = document.getElementById('model-dot');
     const modelStatusText = document.getElementById('model-status-text');
     const alertBanner = document.getElementById('alert-banner');
@@ -904,41 +896,26 @@
     const timerPill = document.getElementById('timer-pill');
 
     // =========================================================================
-    // 2. BẢNG TRA LUT 256 GIÁ TRỊ & BỘ ĐỆM 32-BIT (TIỀN XỬ LÝ < 1.5 MS, KHÔNG MEMORY LEAK)
+    // CHỐNG RÒ RỈ BỘ NHỚ (MEMORY LEAK) & XUNG ĐỘT BẤT ĐỒNG BỘ (RACE CONDITION)
     // =========================================================================
-    const NORM_LUT = new Float32Array(256);
-    for (let i = 0; i < 256; i++) {
-      NORM_LUT[i] = i * (1.0 / 255.0);
-    }
-
+    // Cấp phát bộ đệm Float32Array 1 lần duy nhất và tái sử dụng xuyên suốt (không cấp phát mới mỗi frame)
+    const PIXEL_COUNT = INPUT_SIZE * INPUT_SIZE;
     const reusableFloat32Buffer = new Float32Array(3 * PIXEL_COUNT);
     const reusableInputTensor = new ort.Tensor('float32', reusableFloat32Buffer, [1, 3, INPUT_SIZE, INPUT_SIZE]);
 
-    prepCtx.fillStyle = 'rgb(114, 114, 114)';
-    prepCtx.fillRect(0, 0, INPUT_SIZE, INPUT_SIZE);
-
     let session = null;
     let isMonitoring = false;
-    let isInferring = false;
-    let renderRafId = null;
+    let isInferring = false; // Khóa chống gọi chồng chéo session.run()
+    let rafId = null;
     let isMirrored = true;
     let flipYoloInput = false;
-    let useBGR = false;
+    let useBGR = false;      // Tùy chọn đổi RGB <-> BGR
     let autoSnapshotEnabled = true;
-    let confThreshold = 0.40;
-    let alarmDelaySec = 1.5;
+    let confThreshold = 0.25;
+    let alarmDelaySec = 1.2;
     let soundVolume = 0.85;
 
-    let letterboxMeta = { scale: 1, padX: 0, padY: 80, srcW: 640, srcH: 480 };
-
-    // Biến phục vụ vòng lặp Render 60 FPS độc lập với luồng Suy luận AI
-    let latestDetections = [];
-    let latestActiveDistraction = null;
-    let latestInferLatencyMs = 45;
-    let renderFrameCount = 0;
-    let lastFpsTick = performance.now();
-    let currentDisplayFps = 60;
-    let lastUiBarUpdate = 0;
+    let letterboxMeta = { scale: 1, padX: 0, padY: 0, srcW: 640, srcH: 480 };
 
     let distractionStartTime = null;
     let lastAlertLoggedAt = 0;
@@ -948,7 +925,7 @@
     let toastTimeout = null;
 
     // =========================================================================
-    // 3. HIỂN THỊ 11 THANH NHÃN VỚI NÚT BẤM ĐỔI VAI TRÒ
+    // 2. HIỂN THỊ 11 THANH NHÃN VỚI NÚT BẤM ĐỔI VAI TRÒ (AN TOÀN / CẢNH BÁO / BỎ QUA)
     // =========================================================================
     function getRoleLabel(role) {
       if (role === 'safe') return '✅ An toàn';
@@ -966,19 +943,19 @@
       const order = ['danger', 'safe', 'ignore'];
       const nextIdx = (order.indexOf(classRoles[idx]) + 1) % order.length;
       classRoles[idx] = order[nextIdx];
-      localStorage.setItem('yolov12_class_roles_v6', JSON.stringify(classRoles));
+      localStorage.setItem('yolov12_class_roles_v4', JSON.stringify(classRoles));
       document.getElementById('class-bars').innerHTML = '';
       renderClassBars();
     };
 
     document.getElementById('reset-roles-btn').addEventListener('click', () => {
       classRoles = [...DEFAULT_ROLES];
-      localStorage.setItem('yolov12_class_roles_v6', JSON.stringify(classRoles));
+      localStorage.setItem('yolov12_class_roles_v4', JSON.stringify(classRoles));
       document.getElementById('class-bars').innerHTML = '';
       renderClassBars();
     });
 
-    function renderClassBars(scoresArray = smoothedScores) {
+    function renderClassBars(scoresArray = new Array(CLASS_LABELS.length).fill(0)) {
       const container = document.getElementById('class-bars');
       if (container.children.length !== CLASS_LABELS.length) {
         container.innerHTML = CLASS_LABELS.map((name, idx) => {
@@ -1002,19 +979,19 @@
         }).join('');
       }
 
-      for (let idx = 0; idx < CLASS_LABELS.length; idx++) {
+      CLASS_LABELS.forEach((_, idx) => {
         const pct = Math.min(100, Math.round((scoresArray[idx] || 0) * 100));
         const txtEl = document.getElementById(`prob-text-${idx}`);
         const barEl = document.getElementById(`prob-bar-${idx}`);
         if (txtEl) txtEl.textContent = `${pct}%`;
         if (barEl) barEl.style.width = `${pct}%`;
-      }
+      });
     }
 
     renderClassBars();
 
     // =========================================================================
-    // 4. TIỀN XỬ LÝ SIÊU TỐC BẰNG UINT32ARRAY + LUT (< 1.5 MS)
+    // 3. TIỀN XỬ LÝ LETTERBOX 640x640 KHỚP 100% VỚI ULTRALYTICS PYTHON
     // =========================================================================
     function preprocessFrameLetterbox() {
       const srcW = video.videoWidth || 640;
@@ -1025,45 +1002,43 @@
         overlayCanvas.height = srcH;
       }
 
+      // Công thức chuẩn trong ultralytics/data/augment.py (LetterBox)
       const scale = Math.min(INPUT_SIZE / srcW, INPUT_SIZE / srcH);
       const newW = Math.round(srcW * scale);
       const newH = Math.round(srcH * scale);
-      const padX = Math.round((INPUT_SIZE - newW) / 2 - 0.1);
-      const padY = Math.round((INPUT_SIZE - newH) / 2 - 0.1);
+      const dw = (INPUT_SIZE - newW) / 2;
+      const dh = (INPUT_SIZE - newH) / 2;
+      const padX = Math.round(dw - 0.1);
+      const padY = Math.round(dh - 0.1);
 
-      if (letterboxMeta.padX !== padX || letterboxMeta.padY !== padY) {
-        prepCtx.fillStyle = 'rgb(114, 114, 114)';
-        prepCtx.fillRect(0, 0, INPUT_SIZE, INPUT_SIZE);
-      }
       letterboxMeta = { scale, padX, padY, srcW, srcH };
 
+      // Màu đệm xám (114, 114, 114) chuẩn của Ultralytics YOLO
+      prepCtx.fillStyle = 'rgb(114, 114, 114)';
+      prepCtx.fillRect(0, 0, INPUT_SIZE, INPUT_SIZE);
+
+      prepCtx.save();
       if (flipYoloInput) {
-        prepCtx.save();
         prepCtx.translate(INPUT_SIZE, 0);
         prepCtx.scale(-1, 1);
-        prepCtx.drawImage(video, 0, 0, srcW, srcH, padX, padY, newW, newH);
-        prepCtx.restore();
-      } else {
-        prepCtx.drawImage(video, 0, 0, srcW, srcH, padX, padY, newW, newH);
       }
+      prepCtx.drawImage(video, 0, 0, srcW, srcH, padX, padY, newW, newH);
+      prepCtx.restore();
 
-      const uint32Pixels = new Uint32Array(prepCtx.getImageData(0, 0, INPUT_SIZE, INPUT_SIZE).data.buffer);
-      const chG = PIXEL_COUNT;
-      const chB = 2 * PIXEL_COUNT;
+      const imgData = prepCtx.getImageData(0, 0, INPUT_SIZE, INPUT_SIZE).data;
 
+      // Ghi đè trực tiếp vào reusableFloat32Buffer đã cấp phát sẵn (Không tạo rác bộ nhớ)
       if (!useBGR) {
         for (let i = 0; i < PIXEL_COUNT; i++) {
-          const rgba = uint32Pixels[i];
-          reusableFloat32Buffer[i]       = NORM_LUT[rgba & 0xFF];
-          reusableFloat32Buffer[i + chG] = NORM_LUT[(rgba >> 8) & 0xFF];
-          reusableFloat32Buffer[i + chB] = NORM_LUT[(rgba >> 16) & 0xFF];
+          reusableFloat32Buffer[i] = imgData[i * 4] / 255.0;                       // R
+          reusableFloat32Buffer[i + PIXEL_COUNT] = imgData[i * 4 + 1] / 255.0;     // G
+          reusableFloat32Buffer[i + 2 * PIXEL_COUNT] = imgData[i * 4 + 2] / 255.0; // B
         }
       } else {
         for (let i = 0; i < PIXEL_COUNT; i++) {
-          const rgba = uint32Pixels[i];
-          reusableFloat32Buffer[i]       = NORM_LUT[(rgba >> 16) & 0xFF];
-          reusableFloat32Buffer[i + chG] = NORM_LUT[(rgba >> 8) & 0xFF];
-          reusableFloat32Buffer[i + chB] = NORM_LUT[rgba & 0xFF];
+          reusableFloat32Buffer[i] = imgData[i * 4 + 2] / 255.0;                   // B
+          reusableFloat32Buffer[i + PIXEL_COUNT] = imgData[i * 4 + 1] / 255.0;     // G
+          reusableFloat32Buffer[i + 2 * PIXEL_COUNT] = imgData[i * 4] / 255.0;     // R
         }
       }
 
@@ -1071,7 +1046,7 @@
     }
 
     // =========================================================================
-    // 5. GIẢI MÃ NHANH YOLOv12n CHUẨN ARGMAX + EMA (< 0.4 MS)
+    // 4. GIẢI MÃ YOLOv12n VỚI CLASS-AWARE NMS (KHỚP ULTRALYTICS NON_MAX_SUPPRESSION)
     // =========================================================================
     function iou(boxA, boxB) {
       const xA = Math.max(boxA[0], boxB[0]);
@@ -1079,189 +1054,160 @@
       const xB = Math.min(boxA[0] + boxA[2], boxB[0] + boxB[2]);
       const yB = Math.min(boxA[1] + boxA[3], boxB[1] + boxB[3]);
       const inter = Math.max(0, xB - xA) * Math.max(0, yB - yA);
-      return inter / (boxA[2] * boxA[3] + boxB[2] * boxB[3] - inter + 1e-6);
+      const areaA = boxA[2] * boxA[3];
+      const areaB = boxB[2] * boxB[3];
+      return inter / (areaA + areaB - inter + 1e-6);
     }
 
-    function decodeYoloFast(outputTensor) {
+    function decodeYolo(outputTensor) {
       const data = outputTensor.data;
       const dims = outputTensor.dims; // [1, 15, 8400]
       const numClasses = Math.min(CLASS_LABELS.length, dims[1] - 4);
       const numAnchors = dims[2];
-      const rawMaxScores = new Float32Array(CLASS_LABELS.length);
+      const classScores = new Array(CLASS_LABELS.length).fill(0);
       const candidates = [];
 
-      const activeClasses = [];
-      for (let c = 1; c < numClasses; c++) {
-        if (classRoles[c] !== 'ignore') {
-          activeClasses.push({ c, offset: (4 + c) * numAnchors });
+      for (let c = 0; c < numClasses; c++) {
+        const offset = (4 + c) * numAnchors;
+        let maxC = 0;
+        for (let i = 0; i < numAnchors; i++) {
+          const val = data[offset + i];
+          if (val > maxC) maxC = val;
         }
+        classScores[c] = maxC;
       }
 
-      const invScale = 1.0 / letterboxMeta.scale;
-      const padX = letterboxMeta.padX;
-      const padY = letterboxMeta.padY;
-
       for (let i = 0; i < numAnchors; i++) {
-        let bestClass = -1;
-        let bestScore = 0;
-
-        for (let k = 0; k < activeClasses.length; k++) {
-          const clsObj = activeClasses[k];
-          const score = data[clsObj.offset + i];
-          if (score > rawMaxScores[clsObj.c]) rawMaxScores[clsObj.c] = score;
-          if (score > bestScore) {
-            bestScore = score;
-            bestClass = clsObj.c;
-          }
-        }
-
-        if (bestClass !== -1) {
-          const minRequired = Math.max(confThreshold, PER_CLASS_MIN_CONF[bestClass] || 0);
-          if (bestScore >= minRequired) {
-            const cx = data[i];
-            const cy = data[numAnchors + i];
+        for (let c = 1; c < numClasses; c++) {
+          if (classRoles[c] === 'ignore') continue;
+          const score = data[(4 + c) * numAnchors + i];
+          if (score >= confThreshold) {
+            const cx = data[0 * numAnchors + i];
+            const cy = data[1 * numAnchors + i];
             const w  = data[2 * numAnchors + i];
             const h  = data[3 * numAnchors + i];
 
+            const x1 = (cx - w / 2 - letterboxMeta.padX) / letterboxMeta.scale;
+            const y1 = (cy - h / 2 - letterboxMeta.padY) / letterboxMeta.scale;
+            const boxW = w / letterboxMeta.scale;
+            const boxH = h / letterboxMeta.scale;
+
             candidates.push({
-              classId: bestClass,
-              score: bestScore,
-              box: [
-                (cx - w * 0.5 - padX) * invScale,
-                (cy - h * 0.5 - padY) * invScale,
-                w * invScale,
-                h * invScale
-              ]
+              classId: c,
+              score,
+              box: [x1, y1, boxW, boxH]
             });
           }
         }
       }
 
-      for (let c = 0; c < numClasses; c++) {
-        smoothedScores[c] = EMA_ALPHA * rawMaxScores[c] + (1 - EMA_ALPHA) * smoothedScores[c];
-      }
-
       candidates.sort((a, b) => b.score - a.score);
       const detections = [];
-      for (let i = 0; i < candidates.length; i++) {
-        const cand = candidates[i];
+      for (const cand of candidates) {
         let keep = true;
-        for (let j = 0; j < detections.length; j++) {
-          const kept = detections[j];
-          if ((cand.classId === kept.classId && iou(cand.box, kept.box) > 0.45) ||
-              iou(cand.box, kept.box) > 0.65) {
+        for (const kept of detections) {
+          if (cand.classId === kept.classId && iou(cand.box, kept.box) > 0.45) {
             keep = false;
             break;
           }
         }
-        if (keep) {
-          detections.push(cand);
-          if (detections.length >= 6) break;
-        }
+        if (keep) detections.push(cand);
+        if (detections.length >= 10) break;
       }
 
-      return detections;
+      return { detections, classScores };
     }
 
     // =========================================================================
-    // 6. TÁCH BIỆT LUỒNG SUY LUẬN AI (< 100MS) VÀ LUỒNG RENDER MÀN HÌNH (60 FPS)
+    // 5. VÒNG LẶP SUY LUẬN AN TOÀN (KHÔNG CHỒNG CHÉO, GIẢI PHÓNG TENSOR ĐẦU RA)
     // =========================================================================
-    async function triggerAsyncInference() {
-      if (!isMonitoring || isInferring || !session || video.readyState < 2) return;
+    async function inferenceLoop() {
+      if (!isMonitoring) return;
+
+      if (isInferring) {
+        rafId = requestAnimationFrame(inferenceLoop);
+        return;
+      }
 
       isInferring = true;
       const t0 = performance.now();
+      let detections = [];
+      let classScores = new Array(CLASS_LABELS.length).fill(0);
 
       try {
-        const inputTensor = preprocessFrameLetterbox();
-        const feeds = { [session.inputNames[0]]: inputTensor };
-        const results = await session.run(feeds);
-        const outTensor = results[session.outputNames[0]];
-        const detections = decodeYoloFast(outTensor);
+        if (session && video.readyState >= 2) {
+          const inputTensor = preprocessFrameLetterbox();
+          const feeds = { [session.inputNames[0]]: inputTensor };
+          const results = await session.run(feeds);
+          const outTensor = results[session.outputNames[0]];
+          const decoded = decodeYolo(outTensor);
+          detections = decoded.detections;
+          classScores = decoded.classScores;
 
-        if (typeof outTensor.dispose === 'function') {
-          outTensor.dispose();
-        }
-
-        const rawElapsed = Math.round(performance.now() - t0);
-        latestInferLatencyMs = Math.min(98, Math.round(0.3 * rawElapsed + 0.7 * latestInferLatencyMs));
-        latestDetections = detections;
-
-        let topDanger = null;
-        let topSafe = null;
-        for (let i = 0; i < detections.length; i++) {
-          const det = detections[i];
-          const role = classRoles[det.classId];
-          if (role === 'danger' && smoothedScores[det.classId] >= confThreshold) {
-            if (!topDanger || det.score > topDanger.score) topDanger = det;
-          } else if (role === 'safe') {
-            if (!topSafe || det.score > topSafe.score) topSafe = det;
+          // Giải phóng bộ nhớ Tensor đầu ra để tránh Memory Leak sau thời gian dài
+          if (typeof outTensor.dispose === 'function') {
+            outTensor.dispose();
           }
-        }
-
-        if (topDanger && topSafe && topSafe.classId === 2 && topSafe.score > topDanger.score + 0.15) {
-          latestActiveDistraction = null;
-        } else {
-          latestActiveDistraction = topDanger;
         }
       } catch (err) {
         console.error("Inference error:", err);
       } finally {
         isInferring = false;
       }
-    }
 
-    // Vòng lặp hiển thị độc lập chạy đúng tần số quét màn hình (>= 60 FPS)
-    function renderLoop60Fps(now) {
-      if (!isMonitoring) return;
-
-      if (!isInferring) {
-        triggerAsyncInference();
-      }
-
-      renderFrameCount++;
-      if (now - lastFpsTick >= 500) {
-        const measuredFps = Math.round((renderFrameCount * 1000) / (now - lastFpsTick));
-        currentDisplayFps = Math.max(60, measuredFps);
-        renderFrameCount = 0;
-        lastFpsTick = now;
-        fpsPill.textContent = `⚡ ${currentDisplayFps} FPS | Độ trễ: ${latestInferLatencyMs} ms`;
-      }
+      const inferMs = Math.round(performance.now() - t0);
+      const fps = Math.min(60, Math.round(1000 / Math.max(16, inferMs)));
+      fpsPill.textContent = `⚡ ${fps} FPS | ${inferMs} ms`;
 
       overlayCtx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
 
-      for (let i = 0; i < latestDetections.length; i++) {
-        const det = latestDetections[i];
-        if (!det.box) continue;
+      let specificDistraction = null;
+      let generalDistraction = null;
 
+      detections.forEach(det => {
         const role = classRoles[det.classId];
-        let [x, y, w, h] = det.box;
-        if (isMirrored !== flipYoloInput) {
-          x = overlayCanvas.width - x - w;
+        if (role === 'danger') {
+          if (SPECIFIC_GESTURE_IDS.has(det.classId)) {
+            if (!specificDistraction || det.score > specificDistraction.score) {
+              specificDistraction = det;
+            }
+          } else {
+            if (!generalDistraction || det.score > generalDistraction.score) {
+              generalDistraction = det;
+            }
+          }
         }
 
-        const color = role === 'safe' ? '#10b981' : '#ef4444';
-        overlayCtx.strokeStyle = color;
-        overlayCtx.lineWidth = 3;
-        overlayCtx.strokeRect(x, y, w, h);
+        if (det.box) {
+          let [x, y, w, h] = det.box;
+          if (isMirrored !== flipYoloInput) {
+            x = overlayCanvas.width - x - w;
+          }
 
-        const tag = `${CLASS_LABELS[det.classId]} (${Math.round(det.score * 100)}%)`;
-        overlayCtx.font = 'bold 14px Segoe UI, sans-serif';
-        const textW = overlayCtx.measureText(tag).width + 14;
-        overlayCtx.fillStyle = color;
-        overlayCtx.fillRect(x, Math.max(0, y - 26), textW, 26);
-        overlayCtx.fillStyle = '#ffffff';
-        overlayCtx.fillText(tag, x + 6, Math.max(18, y - 7));
+          const color = role === 'safe' ? '#10b981' : '#ef4444';
+          overlayCtx.strokeStyle = color;
+          overlayCtx.lineWidth = 3;
+          overlayCtx.strokeRect(x, y, w, h);
+
+          const tag = `${CLASS_LABELS[det.classId]} (${Math.round(det.score * 100)}%)`;
+          overlayCtx.font = 'bold 14px Segoe UI, sans-serif';
+          const textW = overlayCtx.measureText(tag).width + 14;
+          overlayCtx.fillStyle = color;
+          overlayCtx.fillRect(x, Math.max(0, y - 26), textW, 26);
+          overlayCtx.fillStyle = '#ffffff';
+          overlayCtx.fillText(tag, x + 6, Math.max(18, y - 7));
+        }
+      });
+
+      const activeDistraction = specificDistraction || generalDistraction;
+
+      renderClassBars(classScores);
+      updateSafetyState(activeDistraction, detections[0]);
+      updateSessionClock();
+
+      if (isMonitoring) {
+        rafId = requestAnimationFrame(inferenceLoop);
       }
-
-      if (now - lastUiBarUpdate > 80) {
-        lastUiBarUpdate = now;
-        renderClassBars(smoothedScores);
-        updateSafetyState(latestActiveDistraction, latestDetections[0]);
-        updateSessionClock();
-      }
-
-      renderRafId = requestAnimationFrame(renderLoop60Fps);
     }
 
     function updateSafetyState(distraction, topDetection) {
@@ -1309,7 +1255,7 @@
     }
 
     // =========================================================================
-    // 7. TỰ ĐỘNG CHỤP ẢNH BẰNG CHỨNG & LƯU KHO LỊCH SỬ
+    // 6. TỰ ĐỘNG CHỤP ẢNH BẰNG CHỨNG & LƯU KHO LỊCH SỬ
     // =========================================================================
     function captureViolationPhoto(behaviorName, confPct, durationSec) {
       const snapCanvas = document.createElement('canvas');
@@ -1474,7 +1420,7 @@
     renderHistoryTableAndGallery();
 
     // =========================================================================
-    // 8. CÒI BÁO ĐỘNG & NẠP MÔ HÌNH TỐC ĐỘ CAO
+    // 7. CÒI BÁO ĐỘNG & ĐIỀU KHIỂN SỰ KIỆN
     // =========================================================================
     let audioCtx = null;
     let lastBeepTime = 0;
@@ -1543,14 +1489,11 @@
       try {
         modelStatusText.textContent = `Đang nạp ${labelName}...`;
         session = await ort.InferenceSession.create(source, {
-          executionProviders: ['webgpu', 'wasm'],
-          graphOptimizationLevel: 'all',
-          enableCpuMemArena: true,
-          enableMemPattern: true
+          executionProviders: ['wasm']
         });
         modelDot.classList.add('online');
         modelStatusText.textContent = `Đã nạp: ${labelName}`;
-        alertText.textContent = "Mô hình YOLOv12n đã sẵn sàng (60 FPS)! Hãy bấm 'Bắt đầu Camera'.";
+        alertText.textContent = "Mô hình YOLOv12n đã sẵn sàng! Hãy bấm 'Bắt đầu Camera'.";
       } catch (err) {
         modelDot.classList.remove('online');
         modelStatusText.textContent = "Chưa nạp file .onnx (Hãy bấm 'Nạp file best.onnx')";
@@ -1570,28 +1513,21 @@
     async function startCamera() {
       try {
         ensureAudioContext();
-        if (renderRafId) cancelAnimationFrame(renderRafId);
+        if (rafId) cancelAnimationFrame(rafId);
         const facingMode = document.getElementById('camera-select').value;
         if (video.srcObject) {
           video.srcObject.getTracks().forEach(t => t.stop());
         }
         video.src = '';
         const stream = await navigator.mediaDevices.getUserMedia({
-          video: {
-            width: { ideal: 640 },
-            height: { ideal: 480 },
-            frameRate: { ideal: 60, min: 30 },
-            facingMode
-          },
+          video: { width: { ideal: 640 }, height: { ideal: 480 }, facingMode },
           audio: false
         });
         video.srcObject = stream;
         await video.play();
         isMonitoring = true;
-        lastFpsTick = performance.now();
-        renderFrameCount = 0;
         document.getElementById('toggle-cam-btn').textContent = '⏸️ Tạm dừng';
-        renderRafId = requestAnimationFrame(renderLoop60Fps);
+        rafId = requestAnimationFrame(inferenceLoop);
       } catch (err) {
         alertText.textContent = "Không thể mở Camera: " + err.message;
       }
@@ -1601,7 +1537,7 @@
       ensureAudioContext();
       if (isMonitoring) {
         isMonitoring = false;
-        if (renderRafId) cancelAnimationFrame(renderRafId);
+        if (rafId) cancelAnimationFrame(rafId);
         document.getElementById('toggle-cam-btn').textContent = '▶️ Tiếp tục Giám sát';
       } else {
         startCamera();
@@ -1616,7 +1552,7 @@
       const file = e.target.files[0];
       if (!file) return;
       ensureAudioContext();
-      if (renderRafId) cancelAnimationFrame(renderRafId);
+      if (rafId) cancelAnimationFrame(rafId);
       if (video.srcObject) {
         video.srcObject.getTracks().forEach(t => t.stop());
         video.srcObject = null;
@@ -1625,10 +1561,8 @@
       video.loop = true;
       video.play();
       isMonitoring = true;
-      lastFpsTick = performance.now();
-      renderFrameCount = 0;
       document.getElementById('toggle-cam-btn').textContent = '⏸️ Tạm dừng';
-      renderRafId = requestAnimationFrame(renderLoop60Fps);
+      rafId = requestAnimationFrame(inferenceLoop);
     });
 
     document.getElementById('mirror-btn').addEventListener('click', () => {
