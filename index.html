@@ -1,0 +1,1652 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SafeDrive - Hệ thống cảnh báo mất tập trung khi lái xe</title>
+  <!-- ONNX Runtime Web chạy hoàn toàn trên trình duyệt người dùng -->
+  <script src="https://cdn.jsdelivr.net/npm/onnxruntime-web/dist/ort.min.js"></script>
+  <style>
+    :root {
+      --bg-main: #0b1120;
+      --bg-card: #131c31;
+      --bg-panel: #1e293b;
+      --border-solid: #334155;
+      --text-main: #f8fafc;
+      --text-muted: #94a3b8;
+      --accent: #0ea5e9;
+      --safe: #10b981;
+      --warn: #f59e0b;
+      --danger: #ef4444;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+      background-color: var(--bg-main);
+      color: var(--text-main);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    header {
+      background: rgba(19, 28, 49, 0.9);
+      border-bottom: 1px solid var(--border-solid);
+      padding: 12px 24px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 12px;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .brand-icon {
+      width: 38px;
+      height: 38px;
+      border-radius: 10px;
+      background: linear-gradient(135deg, #0ea5e9, #10b981);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 800;
+      font-size: 1.1rem;
+      color: #fff;
+    }
+
+    .brand h1 {
+      font-size: 1.15rem;
+      font-weight: 700;
+    }
+
+    .brand p {
+      font-size: 0.8rem;
+      color: var(--text-muted);
+    }
+
+    .header-badges {
+      display: flex;
+      gap: 10px;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+
+    .badge {
+      background: var(--bg-panel);
+      border: 1px solid var(--border-solid);
+      padding: 6px 12px;
+      border-radius: 999px;
+      font-size: 0.8rem;
+      font-weight: 600;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--warn);
+    }
+
+    .dot.online {
+      background: var(--safe);
+      box-shadow: 0 0 8px var(--safe);
+    }
+
+    main {
+      flex: 1;
+      max-width: 1440px;
+      width: 100%;
+      margin: 0 auto;
+      padding: 18px 24px;
+      display: grid;
+      grid-template-columns: 1.48fr 1.07fr;
+      gap: 20px;
+    }
+
+    @media (max-width: 1080px) {
+      main { grid-template-columns: 1fr; }
+    }
+
+    .card {
+      background: var(--bg-card);
+      border: 1px solid var(--border-solid);
+      border-radius: 14px;
+      padding: 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+
+    .card-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+      padding-bottom: 10px;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    .card-title {
+      font-size: 0.98rem;
+      font-weight: 700;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .viewport-wrapper {
+      position: relative;
+      width: 100%;
+      aspect-ratio: 4 / 3;
+      max-height: 490px;
+      background: #020617;
+      border-radius: 12px;
+      overflow: hidden;
+      border: 3px solid var(--border-solid);
+      transition: border-color 0.2s ease, box-shadow 0.2s ease;
+    }
+
+    .viewport-wrapper.state-safe {
+      border-color: var(--safe);
+    }
+
+    .viewport-wrapper.state-danger {
+      border-color: var(--danger);
+      box-shadow: 0 0 28px rgba(239, 68, 68, 0.55);
+      animation: pulseDanger 0.8s infinite alternate;
+    }
+
+    .flash-overlay {
+      position: absolute;
+      inset: 0;
+      background: #ffffff;
+      opacity: 0;
+      pointer-events: none;
+      z-index: 10;
+      transition: opacity 0.25s ease;
+    }
+
+    .flash-overlay.active {
+      opacity: 0.75;
+    }
+
+    @keyframes pulseDanger {
+      from { box-shadow: 0 0 12px rgba(239, 68, 68, 0.35); }
+      to   { box-shadow: 0 0 32px rgba(239, 68, 68, 0.85); }
+    }
+
+    video, #overlay-canvas {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+    }
+
+    .mirror-video {
+      transform: scaleX(-1);
+    }
+
+    .hud-top {
+      position: absolute;
+      top: 12px;
+      left: 12px;
+      right: 12px;
+      display: flex;
+      justify-content: space-between;
+      pointer-events: none;
+      z-index: 5;
+    }
+
+    .hud-pill {
+      background: rgba(15, 23, 42, 0.82);
+      backdrop-filter: blur(6px);
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      padding: 6px 12px;
+      border-radius: 8px;
+      font-size: 0.82rem;
+      font-weight: 600;
+    }
+
+    .snapshot-toast {
+      position: absolute;
+      bottom: 12px;
+      right: 12px;
+      background: rgba(15, 23, 42, 0.92);
+      border: 1px solid var(--danger);
+      border-radius: 10px;
+      padding: 8px 12px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      z-index: 8;
+      font-size: 0.8rem;
+      transform: translateY(130%);
+      transition: transform 0.25s ease;
+    }
+
+    .snapshot-toast.show {
+      transform: translateY(0);
+    }
+
+    .snapshot-toast img {
+      width: 48px;
+      height: 36px;
+      object-fit: cover;
+      border-radius: 4px;
+      border: 1px solid #ef4444;
+    }
+
+    .alert-banner {
+      padding: 14px 18px;
+      border-radius: 10px;
+      background: var(--bg-panel);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-weight: 700;
+      font-size: 1.02rem;
+      border-left: 6px solid var(--accent);
+      transition: all 0.2s;
+    }
+
+    .alert-banner.safe {
+      background: rgba(16, 185, 129, 0.14);
+      border-left-color: var(--safe);
+      color: #a7f3d0;
+    }
+
+    .alert-banner.warning {
+      background: rgba(245, 158, 11, 0.16);
+      border-left-color: var(--warn);
+      color: #fde68a;
+    }
+
+    .alert-banner.danger {
+      background: rgba(239, 68, 68, 0.24);
+      border-left-color: var(--danger);
+      color: #fecaca;
+    }
+
+    .controls-grid {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      align-items: center;
+    }
+
+    button, .file-btn, select {
+      background: var(--bg-panel);
+      color: var(--text-main);
+      border: 1px solid var(--border-solid);
+      padding: 8px 12px;
+      border-radius: 8px;
+      font-size: 0.83rem;
+      font-weight: 600;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      transition: background 0.15s, border-color 0.15s;
+    }
+
+    button:hover, .file-btn:hover, select:hover {
+      background: #283548;
+      border-color: #64748b;
+    }
+
+    button.primary {
+      background: var(--accent);
+      border-color: var(--accent);
+      color: #fff;
+    }
+
+    button.primary:hover {
+      background: #0284c7;
+    }
+
+    button.danger-btn {
+      background: var(--danger);
+      border-color: var(--danger);
+      color: #fff;
+    }
+
+    button.active-toggle {
+      background: rgba(16, 185, 129, 0.2);
+      border-color: var(--safe);
+      color: #a7f3d0;
+    }
+
+    input[type="file"] {
+      display: none;
+    }
+
+    .kpi-row {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 10px;
+    }
+
+    @media (max-width: 640px) {
+      .kpi-row { grid-template-columns: repeat(2, 1fr); }
+    }
+
+    .kpi-box {
+      background: var(--bg-panel);
+      border: 1px solid rgba(255, 255, 255, 0.05);
+      border-radius: 10px;
+      padding: 10px 12px;
+      text-align: center;
+    }
+
+    .kpi-label {
+      font-size: 0.75rem;
+      color: var(--text-muted);
+      margin-bottom: 4px;
+    }
+
+    .kpi-val {
+      font-size: 1.25rem;
+      font-weight: 800;
+    }
+
+    .setting-row {
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
+    }
+
+    .setting-label {
+      display: flex;
+      justify-content: space-between;
+      font-size: 0.82rem;
+      color: #cbd5e1;
+      font-weight: 600;
+    }
+
+    input[type="range"] {
+      width: 100%;
+      accent-color: var(--accent);
+      cursor: pointer;
+    }
+
+    .settings-two-col {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+    }
+
+    .class-list {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px 12px;
+      max-height: 255px;
+      overflow-y: auto;
+      padding-right: 4px;
+    }
+
+    .class-item {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      font-size: 0.77rem;
+      background: rgba(30, 41, 59, 0.55);
+      padding: 6px 8px;
+      border-radius: 8px;
+      border: 1px solid rgba(255, 255, 255, 0.05);
+    }
+
+    .class-item-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 4px;
+      color: #e2e8f0;
+    }
+
+    .role-pill {
+      font-size: 0.68rem;
+      padding: 2px 6px;
+      border-radius: 99px;
+      cursor: pointer;
+      user-select: none;
+      font-weight: 700;
+      white-space: nowrap;
+    }
+
+    .role-pill.role-safe {
+      background: rgba(16, 185, 129, 0.2);
+      color: #6ee7b7;
+      border: 1px solid #10b981;
+    }
+
+    .role-pill.role-danger {
+      background: rgba(239, 68, 68, 0.2);
+      color: #fca5a5;
+      border: 1px solid #ef4444;
+    }
+
+    .role-pill.role-ignore {
+      background: rgba(148, 163, 184, 0.15);
+      color: #94a3b8;
+      border: 1px solid #475569;
+    }
+
+    .progress-track {
+      width: 100%;
+      height: 7px;
+      background: #0f172a;
+      border-radius: 99px;
+      overflow: hidden;
+    }
+
+    .progress-fill {
+      height: 100%;
+      width: 0%;
+      background: var(--accent);
+      transition: width 0.1s ease;
+    }
+
+    .log-container {
+      max-height: 210px;
+      overflow-y: auto;
+      border: 1px solid var(--border-solid);
+      border-radius: 8px;
+      background: #0b1324;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.8rem;
+    }
+
+    th, td {
+      padding: 8px 10px;
+      text-align: left;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+      vertical-align: middle;
+    }
+
+    th {
+      background: #162038;
+      color: var(--text-muted);
+      position: sticky;
+      top: 0;
+      z-index: 2;
+    }
+
+    .log-thumb {
+      width: 56px;
+      height: 42px;
+      object-fit: cover;
+      border-radius: 6px;
+      border: 1px solid var(--border-solid);
+      cursor: pointer;
+      transition: transform 0.15s, border-color 0.15s;
+    }
+
+    .log-thumb:hover {
+      transform: scale(1.08);
+      border-color: var(--accent);
+    }
+
+    .modal-backdrop {
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.78);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      z-index: 50;
+      padding: 16px;
+    }
+
+    .modal-backdrop.active {
+      display: flex;
+    }
+
+    .modal {
+      background: var(--bg-card);
+      border: 1px solid var(--border-solid);
+      border-radius: 14px;
+      max-width: 560px;
+      width: 100%;
+      padding: 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+      max-height: 90vh;
+    }
+
+    .modal.large-modal {
+      max-width: 920px;
+    }
+
+    .gallery-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+      gap: 12px;
+      overflow-y: auto;
+      max-height: 62vh;
+      padding: 4px;
+    }
+
+    .gallery-card {
+      background: var(--bg-panel);
+      border: 1px solid var(--border-solid);
+      border-radius: 10px;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .gallery-card img {
+      width: 100%;
+      aspect-ratio: 4 / 3;
+      object-fit: cover;
+      cursor: pointer;
+    }
+
+    .gallery-meta {
+      padding: 8px 10px;
+      font-size: 0.78rem;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .gallery-actions {
+      display: flex;
+      gap: 6px;
+      margin-top: 4px;
+    }
+
+    .gallery-actions button {
+      flex: 1;
+      padding: 5px 8px;
+      font-size: 0.74rem;
+      justify-content: center;
+    }
+
+    .lightbox-img {
+      width: 100%;
+      max-height: 65vh;
+      object-fit: contain;
+      border-radius: 8px;
+      background: #000;
+      border: 1px solid var(--border-solid);
+    }
+  </style>
+</head>
+<body>
+
+  <!-- HEADER -->
+  <header>
+    <div class="brand">
+      <div class="brand-icon">AI</div>
+      <div>
+        <h1>ADAS Guard — Giám sát Tập trung Lái xe (YOLOv12n Chuẩn Python Local)</h1>
+        <p>Chống rò rỉ bộ nhớ Tensor • Tiền xử lý Letterbox 640×640 chuẩn Ultralytics • Suy luận FP32 chính xác</p>
+      </div>
+    </div>
+
+    <div class="header-badges">
+      <div class="badge">
+        <span id="model-dot" class="dot"></span>
+        <span id="model-status-text">Mô hình: Đang nạp best.onnx...</span>
+      </div>
+      <div class="badge">Chuẩn Letterbox 640×640 • FP32 WASM</div>
+    </div>
+  </header>
+
+  <!-- MAIN CONTENT -->
+  <main>
+    <!-- CỘT TRÁI: MÀN HÌNH GIÁM SÁT & ĐIỀU KHIỂN CHÍNH -->
+    <div class="card">
+      <div class="card-header">
+        <div class="card-title">📹 Màn hình Giám sát Buồng lái Thời gian thực</div>
+        <div class="controls-grid">
+          <label class="file-btn" title="Chọn file best.onnx từ máy tính của bạn">
+            📂 Nạp file best.onnx
+            <input type="file" id="model-file-input" accept=".onnx">
+          </label>
+          <button id="open-gallery-btn" class="primary">🖼️ Kho ảnh đã chụp (<span id="gallery-count">0</span>)</button>
+        </div>
+      </div>
+
+      <!-- Khung Video + Canvas vẽ Bounding Box -->
+      <div id="viewport" class="viewport-wrapper">
+        <video id="webcam" class="mirror-video" autoplay playsinline muted></video>
+        <canvas id="overlay-canvas" width="640" height="480"></canvas>
+        <div id="flash-overlay" class="flash-overlay"></div>
+
+        <div class="hud-top">
+          <div class="hud-pill" id="fps-pill">⚡ 0 FPS | 0 ms</div>
+          <div class="hud-pill" id="timer-pill">⏱️ Mất tập trung: 0.0s</div>
+        </div>
+
+        <div id="snapshot-toast" class="snapshot-toast">
+          <img id="toast-img" src="" alt="Snapshot">
+          <div>
+            <div style="font-weight: 700; color: #fca5a5;">📸 Đã tự động chụp vi phạm!</div>
+            <div id="toast-desc" style="color: var(--text-muted); font-size: 0.74rem;">Đã lưu vào lịch sử</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Thanh Cảnh báo Trạng thái Lớn -->
+      <div id="alert-banner" class="alert-banner">
+        <span id="alert-text">Hãy bấm 'Bắt đầu Camera' để giám sát với mô hình YOLOv12n</span>
+        <span id="alert-conf">--%</span>
+      </div>
+
+      <!-- Cụm nút thao tác của người dùng -->
+      <div class="controls-grid">
+        <button id="toggle-cam-btn" class="primary">▶️ Bắt đầu Camera</button>
+        <select id="camera-select" title="Chọn thiết bị Camera">
+          <option value="user">Camera trước / Webcam</option>
+          <option value="environment">Camera góc rộng / Sau</option>
+        </select>
+
+        <label class="file-btn" title="Chạy thử mô hình trên file video có sẵn">
+          🎬 Thử bằng Video (.mp4)
+          <input type="file" id="video-file-input" accept="video/*">
+        </label>
+
+        <button id="color-order-btn" title="Đổi hệ màu RGB (chuẩn Ultralytics) hoặc BGR (nếu lúc train/test OpenCV không đổi sang RGB)">
+          🎨 Hệ màu: RGB (Chuẩn)
+        </button>
+
+        <button id="flip-infer-btn" title="Đảo chiều trái/phải của ảnh đưa vào mô hình YOLO">
+          🔄 Chiều ảnh YOLO: Gốc
+        </button>
+
+        <button id="mirror-btn">🪞 Lật gương hiển thị</button>
+
+        <button id="auto-snap-toggle" class="active-toggle">
+          📸 Tự động chụp: BẬT
+        </button>
+      </div>
+
+      <!-- 4 Chỉ số KPI -->
+      <div class="kpi-row">
+        <div class="kpi-box">
+          <div class="kpi-label">Điểm An toàn</div>
+          <div class="kpi-val" id="kpi-score" style="color: var(--safe);">100%</div>
+        </div>
+        <div class="kpi-box">
+          <div class="kpi-label">Ảnh Vi phạm Đã chụp</div>
+          <div class="kpi-val" id="kpi-alerts" style="color: var(--danger);">0</div>
+        </div>
+        <div class="kpi-box">
+          <div class="kpi-label">Thời gian Giám sát</div>
+          <div class="kpi-val" id="kpi-duration">00:00</div>
+        </div>
+        <div class="kpi-box">
+          <div class="kpi-label">Trạng thái Còi</div>
+          <div class="kpi-val" id="kpi-alarm-state" style="color: var(--accent);">Sẵn sàng</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- CỘT PHẢI: CÀI ĐẶT ÂM THANH, THÔNG SỐ YOLO & LỊCH SỬ ẢNH -->
+    <div style="display: flex; flex-direction: column; gap: 16px;">
+
+      <!-- Cài đặt Cảnh báo Âm thanh & Mô hình -->
+      <div class="card">
+        <div class="card-header">
+          <div class="card-title">🔊 Cài đặt Còi Báo động & Độ nhạy Nhận diện</div>
+          <button id="test-sound-btn" class="danger-btn">🔔 Nghe thử còi</button>
+        </div>
+
+        <div class="settings-two-col">
+          <div class="setting-row">
+            <label class="setting-label">Kiểu âm thanh cảnh báo</label>
+            <select id="sound-type">
+              <option value="siren">🚨 Còi báo động khẩn cấp (Siren)</option>
+              <option value="beep">🔊 Tiếng Bíp tần số cao (Beep)</option>
+              <option value="voice">🗣️ Giọng nói nhắc nhở (Tiếng Việt)</option>
+              <option value="mute">🔇 Tắt âm thanh (Chỉ nháy đỏ & chụp ảnh)</option>
+            </select>
+          </div>
+
+          <div class="setting-row">
+            <div class="setting-label">
+              <span>Ngưỡng nhạy YOLO (Confidence)</span>
+              <span id="conf-val">25%</span>
+            </div>
+            <input type="range" id="conf-slider" min="10" max="85" step="5" value="25">
+          </div>
+        </div>
+
+        <div class="settings-two-col">
+          <div class="setting-row">
+            <div class="setting-label">
+              <span>Thời gian lỗi trước khi hú còi & chụp</span>
+              <span id="delay-val">1.2 giây</span>
+            </div>
+            <input type="range" id="alarm-delay-slider" min="0.2" max="5.0" step="0.1" value="1.2">
+          </div>
+
+          <div class="setting-row">
+            <div class="setting-label">
+              <span>Âm lượng cảnh báo</span>
+              <span id="vol-val">85%</span>
+            </div>
+            <input type="range" id="vol-slider" min="10" max="100" step="5" value="85">
+          </div>
+        </div>
+      </div>
+
+      <!-- Biểu đồ 11 Nhãn trong best.onnx Thời gian thực -->
+      <div class="card">
+        <div class="card-header">
+          <div class="card-title">📊 11 Nhãn trong best.onnx (Bấm vào nút trạng thái để đổi vai trò)</div>
+          <button id="reset-roles-btn" style="padding:4px 8px; font-size:0.75rem;">🔄 Mặc định</button>
+        </div>
+        <div id="class-bars" class="class-list"></div>
+      </div>
+
+      <!-- Nhật ký Vi phạm kèm Ảnh tự động chụp -->
+      <div class="card">
+        <div class="card-header">
+          <div class="card-title">📋 Lịch sử Cảnh báo & Ảnh Tự động Chụp</div>
+          <div style="display:flex; gap:8px;">
+            <button id="view-all-photos-btn">🖼️ Xem thư viện ảnh</button>
+            <button id="export-csv-btn">📥 Xuất CSV</button>
+            <button id="clear-log-btn">🗑️ Xóa</button>
+          </div>
+        </div>
+        <div class="log-container">
+          <table>
+            <thead>
+              <tr>
+                <th>Ảnh chụp</th>
+                <th>Thời gian</th>
+                <th>Lỗi phát hiện</th>
+                <th>Độ tin cậy</th>
+                <th>Thao tác</th>
+              </tr>
+            </thead>
+            <tbody id="log-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+
+    </div>
+  </main>
+
+  <!-- MODAL 1: THƯ VIỆN LỊCH SỬ ẢNH ĐÃ CHỤP -->
+  <div id="gallery-modal" class="modal-backdrop">
+    <div class="modal large-modal">
+      <div class="card-header">
+        <div class="card-title">🖼️ Thư viện Lịch sử Ảnh Vi phạm Tự động Chụp</div>
+        <div style="display:flex; gap:8px;">
+          <button id="clear-gallery-btn" class="danger-btn">🗑️ Xóa toàn bộ ảnh</button>
+          <button id="close-gallery-btn">✖️ Đóng</button>
+        </div>
+      </div>
+      <div id="gallery-grid" class="gallery-grid"></div>
+    </div>
+  </div>
+
+  <!-- MODAL 2: XEM CHI TIẾT PHÓNG TO 1 ẢNH VI PHẠM -->
+  <div id="lightbox-modal" class="modal-backdrop">
+    <div class="modal large-modal">
+      <div class="card-header">
+        <div class="card-title" id="lightbox-title">🔍 Chi tiết Ảnh Vi phạm</div>
+        <div style="display:flex; gap:8px;">
+          <button id="download-single-btn" class="primary">⬇️ Tải ảnh về máy (.jpg)</button>
+          <button id="close-lightbox-btn">✖️ Đóng</button>
+        </div>
+      </div>
+      <img id="lightbox-img" class="lightbox-img" src="" alt="Ảnh vi phạm phóng to">
+      <div id="lightbox-meta" style="font-size: 0.88rem; color: var(--text-muted); text-align: center;"></div>
+    </div>
+  </div>
+
+  <!-- Canvas ẩn dùng để chuẩn hóa khung hình chuẩn Letterbox 640x640 đưa vào YOLO -->
+  <canvas id="prep-canvas" width="640" height="640" style="display:none;"></canvas>
+
+  <script>
+    // =========================================================================
+    // 1. CẤU HÌNH CHUẨN 11 NHÃN TỪ FILE best.onnx CỦA BẠN
+    // names: {0: '0', 1: 'close_eye', 2: 'correct', 3: 'dozing', 4: 'drinking',
+    //         5: 'face', 6: 'mobile', 7: 'radio', 8: 'talking', 9: 'work', 10: 'yawn'}
+    // =========================================================================
+    const DEFAULT_MODEL_PATH = './best.onnx';
+    const INPUT_SIZE = 640;
+
+    // Xóa cache nhãn cũ bị lệch thứ tự từ các phiên bản trước
+    localStorage.removeItem('yolo_12_labels');
+    localStorage.removeItem('yolov12_11_labels');
+    localStorage.removeItem('yolov12_class_roles_v2');
+    localStorage.removeItem('yolov12_class_roles_v3');
+
+    const CLASS_LABELS = [
+      "Nhãn 0 (Bỏ qua)",                // 0: '0'
+      "Nhắm mắt (close_eye)",           // 1: 'close_eye'
+      "Lái xe an toàn (correct)",       // 2: 'correct'
+      "Ngủ gật / Gục đầu (dozing)",     // 3: 'dozing'
+      "Uống nước / Ăn uống (drinking)", // 4: 'drinking'
+      "Khuôn mặt bình thường (face)",   // 5: 'face'
+      "Dùng điện thoại (mobile)",       // 6: 'mobile'
+      "Chỉnh Radio / Màn hình (radio)", // 7: 'radio'
+      "Nói chuyện (talking)",           // 8: 'talking'
+      "Làm việc riêng (work)",          // 9: 'work'
+      "Ngáp / Mệt mỏi (yawn)"           // 10: 'yawn'
+    ];
+
+    // Bật đầy đủ cả 8 nhãn mất tập trung (1, 3, 4, 6, 7, 8, 9, 10) là 'danger'
+    // và 2 nhãn bình thường (2: 'correct', 5: 'face') là 'safe'
+    const DEFAULT_ROLES = [
+      'ignore', // 0: '0'
+      'danger', // 1: 'close_eye'
+      'safe',   // 2: 'correct'
+      'danger', // 3: 'dozing'
+      'danger', // 4: 'drinking'
+      'safe',   // 5: 'face'
+      'danger', // 6: 'mobile'
+      'danger', // 7: 'radio'
+      'danger', // 8: 'talking'
+      'danger', // 9: 'work'
+      'danger'  // 10: 'yawn'
+    ];
+
+    let classRoles = JSON.parse(localStorage.getItem('yolov12_class_roles_v4')) || [...DEFAULT_ROLES];
+    let alertLogs = JSON.parse(localStorage.getItem('yolo_violation_photos') || '[]');
+
+    const SPECIFIC_GESTURE_IDS = new Set([1, 3, 4, 6, 7, 8, 10]);
+
+    // DOM Elements
+    const video = document.getElementById('webcam');
+    const overlayCanvas = document.getElementById('overlay-canvas');
+    const overlayCtx = overlayCanvas.getContext('2d');
+    const prepCanvas = document.getElementById('prep-canvas');
+    const prepCtx = prepCanvas.getContext('2d', { willReadFrequently: true });
+    prepCtx.imageSmoothingEnabled = true;
+    prepCtx.imageSmoothingQuality = 'high';
+
+    const viewport = document.getElementById('viewport');
+    const flashOverlay = document.getElementById('flash-overlay');
+
+    const modelDot = document.getElementById('model-dot');
+    const modelStatusText = document.getElementById('model-status-text');
+    const alertBanner = document.getElementById('alert-banner');
+    const alertText = document.getElementById('alert-text');
+    const alertConf = document.getElementById('alert-conf');
+    const fpsPill = document.getElementById('fps-pill');
+    const timerPill = document.getElementById('timer-pill');
+
+    // =========================================================================
+    // CHỐNG RÒ RỈ BỘ NHỚ (MEMORY LEAK) & XUNG ĐỘT BẤT ĐỒNG BỘ (RACE CONDITION)
+    // =========================================================================
+    // Cấp phát bộ đệm Float32Array 1 lần duy nhất và tái sử dụng xuyên suốt (không cấp phát mới mỗi frame)
+    const PIXEL_COUNT = INPUT_SIZE * INPUT_SIZE;
+    const reusableFloat32Buffer = new Float32Array(3 * PIXEL_COUNT);
+    const reusableInputTensor = new ort.Tensor('float32', reusableFloat32Buffer, [1, 3, INPUT_SIZE, INPUT_SIZE]);
+
+    let session = null;
+    let isMonitoring = false;
+    let isInferring = false; // Khóa chống gọi chồng chéo session.run()
+    let rafId = null;
+    let isMirrored = true;
+    let flipYoloInput = false;
+    let useBGR = false;      // Tùy chọn đổi RGB <-> BGR
+    let autoSnapshotEnabled = true;
+    let confThreshold = 0.25;
+    let alarmDelaySec = 1.2;
+    let soundVolume = 0.85;
+
+    let letterboxMeta = { scale: 1, padX: 0, padY: 0, srcW: 640, srcH: 480 };
+
+    let distractionStartTime = null;
+    let lastAlertLoggedAt = 0;
+    let totalFrames = 0;
+    let safeFrames = 0;
+    let sessionStartTime = Date.now();
+    let toastTimeout = null;
+
+    // =========================================================================
+    // 2. HIỂN THỊ 11 THANH NHÃN VỚI NÚT BẤM ĐỔI VAI TRÒ (AN TOÀN / CẢNH BÁO / BỎ QUA)
+    // =========================================================================
+    function getRoleLabel(role) {
+      if (role === 'safe') return '✅ An toàn';
+      if (role === 'danger') return '🚨 Cảnh báo';
+      return '🚫 Bỏ qua';
+    }
+
+    function getRoleColor(role) {
+      if (role === 'safe') return 'var(--safe)';
+      if (role === 'danger') return 'var(--danger)';
+      return '#64748b';
+    }
+
+    window.toggleClassRole = function(idx) {
+      const order = ['danger', 'safe', 'ignore'];
+      const nextIdx = (order.indexOf(classRoles[idx]) + 1) % order.length;
+      classRoles[idx] = order[nextIdx];
+      localStorage.setItem('yolov12_class_roles_v4', JSON.stringify(classRoles));
+      document.getElementById('class-bars').innerHTML = '';
+      renderClassBars();
+    };
+
+    document.getElementById('reset-roles-btn').addEventListener('click', () => {
+      classRoles = [...DEFAULT_ROLES];
+      localStorage.setItem('yolov12_class_roles_v4', JSON.stringify(classRoles));
+      document.getElementById('class-bars').innerHTML = '';
+      renderClassBars();
+    });
+
+    function renderClassBars(scoresArray = new Array(CLASS_LABELS.length).fill(0)) {
+      const container = document.getElementById('class-bars');
+      if (container.children.length !== CLASS_LABELS.length) {
+        container.innerHTML = CLASS_LABELS.map((name, idx) => {
+          const role = classRoles[idx] || 'danger';
+          return `
+            <div class="class-item">
+              <div class="class-item-head">
+                <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${idx}. ${name}">${idx}. ${name}</span>
+                <div style="display:flex;align-items:center;gap:6px;">
+                  <span id="prob-text-${idx}" style="font-weight:700;">0%</span>
+                  <span class="role-pill role-${role}" onclick="toggleClassRole(${idx})" title="Bấm để chuyển giữa Cảnh báo / An toàn / Bỏ qua">
+                    ${getRoleLabel(role)}
+                  </span>
+                </div>
+              </div>
+              <div class="progress-track">
+                <div id="prob-bar-${idx}" class="progress-fill" style="background: ${getRoleColor(role)}"></div>
+              </div>
+            </div>
+          `;
+        }).join('');
+      }
+
+      CLASS_LABELS.forEach((_, idx) => {
+        const pct = Math.min(100, Math.round((scoresArray[idx] || 0) * 100));
+        const txtEl = document.getElementById(`prob-text-${idx}`);
+        const barEl = document.getElementById(`prob-bar-${idx}`);
+        if (txtEl) txtEl.textContent = `${pct}%`;
+        if (barEl) barEl.style.width = `${pct}%`;
+      });
+    }
+
+    renderClassBars();
+
+    // =========================================================================
+    // 3. TIỀN XỬ LÝ LETTERBOX 640x640 KHỚP 100% VỚI ULTRALYTICS PYTHON
+    // =========================================================================
+    function preprocessFrameLetterbox() {
+      const srcW = video.videoWidth || 640;
+      const srcH = video.videoHeight || 480;
+
+      if (overlayCanvas.width !== srcW || overlayCanvas.height !== srcH) {
+        overlayCanvas.width = srcW;
+        overlayCanvas.height = srcH;
+      }
+
+      // Công thức chuẩn trong ultralytics/data/augment.py (LetterBox)
+      const scale = Math.min(INPUT_SIZE / srcW, INPUT_SIZE / srcH);
+      const newW = Math.round(srcW * scale);
+      const newH = Math.round(srcH * scale);
+      const dw = (INPUT_SIZE - newW) / 2;
+      const dh = (INPUT_SIZE - newH) / 2;
+      const padX = Math.round(dw - 0.1);
+      const padY = Math.round(dh - 0.1);
+
+      letterboxMeta = { scale, padX, padY, srcW, srcH };
+
+      // Màu đệm xám (114, 114, 114) chuẩn của Ultralytics YOLO
+      prepCtx.fillStyle = 'rgb(114, 114, 114)';
+      prepCtx.fillRect(0, 0, INPUT_SIZE, INPUT_SIZE);
+
+      prepCtx.save();
+      if (flipYoloInput) {
+        prepCtx.translate(INPUT_SIZE, 0);
+        prepCtx.scale(-1, 1);
+      }
+      prepCtx.drawImage(video, 0, 0, srcW, srcH, padX, padY, newW, newH);
+      prepCtx.restore();
+
+      const imgData = prepCtx.getImageData(0, 0, INPUT_SIZE, INPUT_SIZE).data;
+
+      // Ghi đè trực tiếp vào reusableFloat32Buffer đã cấp phát sẵn (Không tạo rác bộ nhớ)
+      if (!useBGR) {
+        for (let i = 0; i < PIXEL_COUNT; i++) {
+          reusableFloat32Buffer[i] = imgData[i * 4] / 255.0;                       // R
+          reusableFloat32Buffer[i + PIXEL_COUNT] = imgData[i * 4 + 1] / 255.0;     // G
+          reusableFloat32Buffer[i + 2 * PIXEL_COUNT] = imgData[i * 4 + 2] / 255.0; // B
+        }
+      } else {
+        for (let i = 0; i < PIXEL_COUNT; i++) {
+          reusableFloat32Buffer[i] = imgData[i * 4 + 2] / 255.0;                   // B
+          reusableFloat32Buffer[i + PIXEL_COUNT] = imgData[i * 4 + 1] / 255.0;     // G
+          reusableFloat32Buffer[i + 2 * PIXEL_COUNT] = imgData[i * 4] / 255.0;     // R
+        }
+      }
+
+      return reusableInputTensor;
+    }
+
+    // =========================================================================
+    // 4. GIẢI MÃ YOLOv12n VỚI CLASS-AWARE NMS (KHỚP ULTRALYTICS NON_MAX_SUPPRESSION)
+    // =========================================================================
+    function iou(boxA, boxB) {
+      const xA = Math.max(boxA[0], boxB[0]);
+      const yA = Math.max(boxA[1], boxB[1]);
+      const xB = Math.min(boxA[0] + boxA[2], boxB[0] + boxB[2]);
+      const yB = Math.min(boxA[1] + boxA[3], boxB[1] + boxB[3]);
+      const inter = Math.max(0, xB - xA) * Math.max(0, yB - yA);
+      const areaA = boxA[2] * boxA[3];
+      const areaB = boxB[2] * boxB[3];
+      return inter / (areaA + areaB - inter + 1e-6);
+    }
+
+    function decodeYolo(outputTensor) {
+      const data = outputTensor.data;
+      const dims = outputTensor.dims; // [1, 15, 8400]
+      const numClasses = Math.min(CLASS_LABELS.length, dims[1] - 4);
+      const numAnchors = dims[2];
+      const classScores = new Array(CLASS_LABELS.length).fill(0);
+      const candidates = [];
+
+      for (let c = 0; c < numClasses; c++) {
+        const offset = (4 + c) * numAnchors;
+        let maxC = 0;
+        for (let i = 0; i < numAnchors; i++) {
+          const val = data[offset + i];
+          if (val > maxC) maxC = val;
+        }
+        classScores[c] = maxC;
+      }
+
+      for (let i = 0; i < numAnchors; i++) {
+        for (let c = 1; c < numClasses; c++) {
+          if (classRoles[c] === 'ignore') continue;
+          const score = data[(4 + c) * numAnchors + i];
+          if (score >= confThreshold) {
+            const cx = data[0 * numAnchors + i];
+            const cy = data[1 * numAnchors + i];
+            const w  = data[2 * numAnchors + i];
+            const h  = data[3 * numAnchors + i];
+
+            const x1 = (cx - w / 2 - letterboxMeta.padX) / letterboxMeta.scale;
+            const y1 = (cy - h / 2 - letterboxMeta.padY) / letterboxMeta.scale;
+            const boxW = w / letterboxMeta.scale;
+            const boxH = h / letterboxMeta.scale;
+
+            candidates.push({
+              classId: c,
+              score,
+              box: [x1, y1, boxW, boxH]
+            });
+          }
+        }
+      }
+
+      candidates.sort((a, b) => b.score - a.score);
+      const detections = [];
+      for (const cand of candidates) {
+        let keep = true;
+        for (const kept of detections) {
+          if (cand.classId === kept.classId && iou(cand.box, kept.box) > 0.45) {
+            keep = false;
+            break;
+          }
+        }
+        if (keep) detections.push(cand);
+        if (detections.length >= 10) break;
+      }
+
+      return { detections, classScores };
+    }
+
+    // =========================================================================
+    // 5. VÒNG LẶP SUY LUẬN AN TOÀN (KHÔNG CHỒNG CHÉO, GIẢI PHÓNG TENSOR ĐẦU RA)
+    // =========================================================================
+    async function inferenceLoop() {
+      if (!isMonitoring) return;
+
+      if (isInferring) {
+        rafId = requestAnimationFrame(inferenceLoop);
+        return;
+      }
+
+      isInferring = true;
+      const t0 = performance.now();
+      let detections = [];
+      let classScores = new Array(CLASS_LABELS.length).fill(0);
+
+      try {
+        if (session && video.readyState >= 2) {
+          const inputTensor = preprocessFrameLetterbox();
+          const feeds = { [session.inputNames[0]]: inputTensor };
+          const results = await session.run(feeds);
+          const outTensor = results[session.outputNames[0]];
+          const decoded = decodeYolo(outTensor);
+          detections = decoded.detections;
+          classScores = decoded.classScores;
+
+          // Giải phóng bộ nhớ Tensor đầu ra để tránh Memory Leak sau thời gian dài
+          if (typeof outTensor.dispose === 'function') {
+            outTensor.dispose();
+          }
+        }
+      } catch (err) {
+        console.error("Inference error:", err);
+      } finally {
+        isInferring = false;
+      }
+
+      const inferMs = Math.round(performance.now() - t0);
+      const fps = Math.min(60, Math.round(1000 / Math.max(16, inferMs)));
+      fpsPill.textContent = `⚡ ${fps} FPS | ${inferMs} ms`;
+
+      overlayCtx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
+
+      let specificDistraction = null;
+      let generalDistraction = null;
+
+      detections.forEach(det => {
+        const role = classRoles[det.classId];
+        if (role === 'danger') {
+          if (SPECIFIC_GESTURE_IDS.has(det.classId)) {
+            if (!specificDistraction || det.score > specificDistraction.score) {
+              specificDistraction = det;
+            }
+          } else {
+            if (!generalDistraction || det.score > generalDistraction.score) {
+              generalDistraction = det;
+            }
+          }
+        }
+
+        if (det.box) {
+          let [x, y, w, h] = det.box;
+          if (isMirrored !== flipYoloInput) {
+            x = overlayCanvas.width - x - w;
+          }
+
+          const color = role === 'safe' ? '#10b981' : '#ef4444';
+          overlayCtx.strokeStyle = color;
+          overlayCtx.lineWidth = 3;
+          overlayCtx.strokeRect(x, y, w, h);
+
+          const tag = `${CLASS_LABELS[det.classId]} (${Math.round(det.score * 100)}%)`;
+          overlayCtx.font = 'bold 14px Segoe UI, sans-serif';
+          const textW = overlayCtx.measureText(tag).width + 14;
+          overlayCtx.fillStyle = color;
+          overlayCtx.fillRect(x, Math.max(0, y - 26), textW, 26);
+          overlayCtx.fillStyle = '#ffffff';
+          overlayCtx.fillText(tag, x + 6, Math.max(18, y - 7));
+        }
+      });
+
+      const activeDistraction = specificDistraction || generalDistraction;
+
+      renderClassBars(classScores);
+      updateSafetyState(activeDistraction, detections[0]);
+      updateSessionClock();
+
+      if (isMonitoring) {
+        rafId = requestAnimationFrame(inferenceLoop);
+      }
+    }
+
+    function updateSafetyState(distraction, topDetection) {
+      totalFrames++;
+
+      if (distraction) {
+        if (!distractionStartTime) distractionStartTime = performance.now();
+        const elapsedSec = (performance.now() - distractionStartTime) / 1000;
+        timerPill.textContent = `⏱️ Mất tập trung: ${elapsedSec.toFixed(1)}s`;
+
+        const labelName = CLASS_LABELS[distraction.classId];
+        const confPct = Math.round(distraction.score * 100);
+        alertConf.textContent = `${confPct}%`;
+
+        if (elapsedSec >= alarmDelaySec) {
+          viewport.className = 'viewport-wrapper state-danger';
+          alertBanner.className = 'alert-banner danger';
+          alertText.textContent = `🚨 CẢNH BÁO NGUY HIỂM: ${labelName.toUpperCase()} (${elapsedSec.toFixed(1)}s)`;
+          document.getElementById('kpi-alarm-state').textContent = 'ĐANG HÚ CÒI!';
+          document.getElementById('kpi-alarm-state').style.color = 'var(--danger)';
+
+          triggerAlarmSound(labelName);
+          logViolationWithAutoPhoto(labelName, confPct, elapsedSec);
+        } else {
+          viewport.className = 'viewport-wrapper';
+          alertBanner.className = 'alert-banner warning';
+          alertText.textContent = `⚠️ Chú ý: ${labelName} (${elapsedSec.toFixed(1)}s / ${alarmDelaySec}s)`;
+          document.getElementById('kpi-alarm-state').textContent = 'Đang theo dõi';
+          document.getElementById('kpi-alarm-state').style.color = 'var(--warn)';
+        }
+      } else {
+        safeFrames++;
+        distractionStartTime = null;
+        timerPill.textContent = `⏱️ Mất tập trung: 0.0s`;
+        viewport.className = 'viewport-wrapper state-safe';
+        alertBanner.className = 'alert-banner safe';
+        alertText.textContent = `✅ Trạng thái: Tài xế đang tập trung an toàn`;
+        alertConf.textContent = topDetection ? `${Math.round(topDetection.score * 100)}%` : 'An toàn';
+        document.getElementById('kpi-alarm-state').textContent = 'An toàn';
+        document.getElementById('kpi-alarm-state').style.color = 'var(--safe)';
+      }
+
+      const safetyScore = Math.round((safeFrames / totalFrames) * 100);
+      document.getElementById('kpi-score').textContent = `${safetyScore}%`;
+    }
+
+    // =========================================================================
+    // 6. TỰ ĐỘNG CHỤP ẢNH BẰNG CHỨNG & LƯU KHO LỊCH SỬ
+    // =========================================================================
+    function captureViolationPhoto(behaviorName, confPct, durationSec) {
+      const snapCanvas = document.createElement('canvas');
+      const w = overlayCanvas.width || 640;
+      const h = overlayCanvas.height || 480;
+      snapCanvas.width = w;
+      snapCanvas.height = h;
+      const sCtx = snapCanvas.getContext('2d');
+
+      sCtx.fillStyle = '#0f172a';
+      sCtx.fillRect(0, 0, w, h);
+
+      if (video.readyState >= 2) {
+        sCtx.save();
+        if (isMirrored) {
+          sCtx.translate(w, 0);
+          sCtx.scale(-1, 1);
+        }
+        sCtx.drawImage(video, 0, 0, w, h);
+        sCtx.restore();
+      }
+
+      sCtx.drawImage(overlayCanvas, 0, 0, w, h);
+
+      const timeStr = new Date().toLocaleString('vi-VN');
+      sCtx.fillStyle = 'rgba(153, 27, 27, 0.88)';
+      sCtx.fillRect(0, h - 38, w, 38);
+      sCtx.fillStyle = '#ffffff';
+      sCtx.font = 'bold 14px Segoe UI, sans-serif';
+      sCtx.fillText(`🚨 VI PHẠM: ${behaviorName.toUpperCase()} (${confPct}%) | Mất tập trung: ${durationSec.toFixed(1)}s | ${timeStr}`, 12, h - 14);
+
+      flashOverlay.classList.add('active');
+      setTimeout(() => flashOverlay.classList.remove('active'), 180);
+
+      return snapCanvas.toDataURL('image/jpeg', 0.78);
+    }
+
+    function saveLogsToStorage() {
+      if (alertLogs.length > 25) alertLogs = alertLogs.slice(0, 25);
+      try {
+        localStorage.setItem('yolo_violation_photos', JSON.stringify(alertLogs));
+      } catch (e) {
+        alertLogs = alertLogs.slice(0, 12);
+        localStorage.setItem('yolo_violation_photos', JSON.stringify(alertLogs));
+      }
+    }
+
+    function showSnapshotToast(photoDataUrl, behaviorName, timeStr) {
+      const toast = document.getElementById('snapshot-toast');
+      document.getElementById('toast-img').src = photoDataUrl;
+      document.getElementById('toast-desc').textContent = `${behaviorName} • ${timeStr}`;
+      toast.classList.add('show');
+      if (toastTimeout) clearTimeout(toastTimeout);
+      toastTimeout = setTimeout(() => toast.classList.remove('show'), 2800);
+    }
+
+    function logViolationWithAutoPhoto(behavior, confPct, durationSec) {
+      const now = Date.now();
+      if (now - lastAlertLoggedAt < 4000) return;
+      lastAlertLoggedAt = now;
+
+      const timeStr = new Date().toLocaleTimeString('vi-VN');
+      const photoDataUrl = autoSnapshotEnabled
+        ? captureViolationPhoto(behavior, confPct, durationSec)
+        : null;
+
+      alertLogs.unshift({
+        timeStr,
+        behavior,
+        confPct,
+        duration: `${durationSec.toFixed(1)}s`,
+        photo: photoDataUrl
+      });
+
+      saveLogsToStorage();
+      renderHistoryTableAndGallery();
+
+      if (photoDataUrl) {
+        showSnapshotToast(photoDataUrl, behavior, timeStr);
+      }
+    }
+
+    function renderHistoryTableAndGallery() {
+      document.getElementById('kpi-alerts').textContent = alertLogs.length;
+      document.getElementById('gallery-count').textContent = alertLogs.length;
+
+      const tbody = document.getElementById('log-tbody');
+      if (alertLogs.length === 0) {
+        tbody.innerHTML = `
+          <tr>
+            <td colspan="5" style="text-align:center; color: var(--text-muted);">
+              Chưa có cảnh báo nào. Hệ thống sẽ tự động chụp ảnh ngay khi tài xế mắc lỗi.
+            </td>
+          </tr>
+        `;
+      } else {
+        tbody.innerHTML = alertLogs.map((item, idx) => `
+          <tr>
+            <td>
+              ${item.photo
+                ? `<img src="${item.photo}" class="log-thumb" onclick="openLightbox(${idx})" title="Bấm để phóng to ảnh">`
+                : `<span style="color:var(--text-muted);font-size:0.75rem;">Không chụp</span>`}
+            </td>
+            <td>${item.timeStr}</td>
+            <td style="color: #fca5a5; font-weight: 600;">${item.behavior}</td>
+            <td>${item.confPct}% (${item.duration})</td>
+            <td>
+              ${item.photo
+                ? `<button onclick="openLightbox(${idx})" style="padding:5px 9px;font-size:0.76rem;">🔍 Xem ảnh</button>`
+                : `-`}
+            </td>
+          </tr>
+        `).join('');
+      }
+
+      const galleryGrid = document.getElementById('gallery-grid');
+      if (alertLogs.length === 0) {
+        galleryGrid.innerHTML = `<p style="color:var(--text-muted); grid-column: 1/-1; text-align:center; padding: 32px;">Chưa có ảnh vi phạm nào được chụp.</p>`;
+      } else {
+        galleryGrid.innerHTML = alertLogs.map((item, idx) => `
+          <div class="gallery-card">
+            <img src="${item.photo}" alt="${item.behavior}" onclick="openLightbox(${idx})">
+            <div class="gallery-meta">
+              <div style="font-weight:700; color:#fca5a5;">${item.behavior}</div>
+              <div style="color:var(--text-muted);">🕒 ${item.timeStr} • Tin cậy: ${item.confPct}%</div>
+              <div class="gallery-actions">
+                <button onclick="openLightbox(${idx})">🔍 Phóng to</button>
+                <button onclick="downloadPhoto(${idx})">⬇️ Tải về</button>
+                <button onclick="deletePhoto(${idx})">🗑️</button>
+              </div>
+            </div>
+          </div>
+        `).join('');
+      }
+    }
+
+    window.openLightbox = function(index) {
+      const item = alertLogs[index];
+      if (!item || !item.photo) return;
+      document.getElementById('lightbox-title').textContent = `🚨 Bằng chứng vi phạm: ${item.behavior}`;
+      document.getElementById('lightbox-img').src = item.photo;
+      document.getElementById('lightbox-meta').textContent = `Thời gian chụp: ${item.timeStr} | Độ tin cậy YOLO: ${item.confPct}% | Thời lượng mất tập trung: ${item.duration}`;
+      document.getElementById('download-single-btn').onclick = () => downloadPhoto(index);
+      document.getElementById('lightbox-modal').classList.add('active');
+    };
+
+    window.downloadPhoto = function(index) {
+      const item = alertLogs[index];
+      if (!item || !item.photo) return;
+      const a = document.createElement('a');
+      a.href = item.photo;
+      a.download = `vi_pham_${item.timeStr.replace(/[:\s\/]/g, '_')}.jpg`;
+      a.click();
+    };
+
+    window.deletePhoto = function(index) {
+      alertLogs.splice(index, 1);
+      saveLogsToStorage();
+      renderHistoryTableAndGallery();
+    };
+
+    renderHistoryTableAndGallery();
+
+    // =========================================================================
+    // 7. CÒI BÁO ĐỘNG & ĐIỀU KHIỂN SỰ KIỆN
+    // =========================================================================
+    let audioCtx = null;
+    let lastBeepTime = 0;
+    let lastVoiceTime = 0;
+
+    function ensureAudioContext() {
+      if (!audioCtx) {
+        const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+        audioCtx = new AudioContextClass();
+      }
+      if (audioCtx.state === 'suspended') audioCtx.resume();
+    }
+
+    function triggerAlarmSound(behaviorName) {
+      const mode = document.getElementById('sound-type').value;
+      if (mode === 'mute') return;
+
+      const now = performance.now();
+
+      if (mode === 'voice') {
+        if (now - lastVoiceTime > 3200 && 'speechSynthesis' in window) {
+          lastVoiceTime = now;
+          window.speechSynthesis.cancel();
+          const cleanName = behaviorName.replace(/\s*\([^)]*\)/g, '');
+          const utter = new SpeechSynthesisUtterance(`Cảnh báo! Phát hiện ${cleanName}. Vui lòng tập trung lái xe!`);
+          utter.lang = 'vi-VN';
+          utter.rate = 1.15;
+          utter.volume = soundVolume;
+          window.speechSynthesis.speak(utter);
+        }
+        return;
+      }
+
+      if (now - lastBeepTime < 350) return;
+      lastBeepTime = now;
+
+      ensureAudioContext();
+      const osc = audioCtx.createOscillator();
+      const gain = audioCtx.createGain();
+      const currentTime = audioCtx.currentTime;
+
+      if (mode === 'siren') {
+        osc.type = 'sawtooth';
+        osc.frequency.setValueAtTime(750, currentTime);
+        osc.frequency.linearRampToValueAtTime(1350, currentTime + 0.16);
+        osc.frequency.linearRampToValueAtTime(750, currentTime + 0.32);
+      } else {
+        osc.type = 'square';
+        osc.frequency.setValueAtTime(1100, currentTime);
+      }
+
+      gain.gain.setValueAtTime(soundVolume * 0.35, currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, currentTime + 0.32);
+
+      osc.connect(gain);
+      gain.connect(audioCtx.destination);
+      osc.start(currentTime);
+      osc.stop(currentTime + 0.32);
+    }
+
+    document.getElementById('test-sound-btn').addEventListener('click', () => {
+      triggerAlarmSound("Dùng điện thoại");
+    });
+
+    async function loadYoloModel(source, labelName = 'best.onnx') {
+      try {
+        modelStatusText.textContent = `Đang nạp ${labelName}...`;
+        session = await ort.InferenceSession.create(source, {
+          executionProviders: ['wasm']
+        });
+        modelDot.classList.add('online');
+        modelStatusText.textContent = `Đã nạp: ${labelName}`;
+        alertText.textContent = "Mô hình YOLOv12n đã sẵn sàng! Hãy bấm 'Bắt đầu Camera'.";
+      } catch (err) {
+        modelDot.classList.remove('online');
+        modelStatusText.textContent = "Chưa nạp file .onnx (Hãy bấm 'Nạp file best.onnx')";
+      }
+    }
+
+    loadYoloModel(DEFAULT_MODEL_PATH, 'best.onnx');
+
+    document.getElementById('model-file-input').addEventListener('change', async (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      const buffer = await file.arrayBuffer();
+      await loadYoloModel(buffer, file.name);
+      if (!isMonitoring) startCamera();
+    });
+
+    async function startCamera() {
+      try {
+        ensureAudioContext();
+        if (rafId) cancelAnimationFrame(rafId);
+        const facingMode = document.getElementById('camera-select').value;
+        if (video.srcObject) {
+          video.srcObject.getTracks().forEach(t => t.stop());
+        }
+        video.src = '';
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: { width: { ideal: 640 }, height: { ideal: 480 }, facingMode },
+          audio: false
+        });
+        video.srcObject = stream;
+        await video.play();
+        isMonitoring = true;
+        document.getElementById('toggle-cam-btn').textContent = '⏸️ Tạm dừng';
+        rafId = requestAnimationFrame(inferenceLoop);
+      } catch (err) {
+        alertText.textContent = "Không thể mở Camera: " + err.message;
+      }
+    }
+
+    document.getElementById('toggle-cam-btn').addEventListener('click', () => {
+      ensureAudioContext();
+      if (isMonitoring) {
+        isMonitoring = false;
+        if (rafId) cancelAnimationFrame(rafId);
+        document.getElementById('toggle-cam-btn').textContent = '▶️ Tiếp tục Giám sát';
+      } else {
+        startCamera();
+      }
+    });
+
+    document.getElementById('camera-select').addEventListener('change', () => {
+      if (isMonitoring) startCamera();
+    });
+
+    document.getElementById('video-file-input').addEventListener('change', (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      ensureAudioContext();
+      if (rafId) cancelAnimationFrame(rafId);
+      if (video.srcObject) {
+        video.srcObject.getTracks().forEach(t => t.stop());
+        video.srcObject = null;
+      }
+      video.src = URL.createObjectURL(file);
+      video.loop = true;
+      video.play();
+      isMonitoring = true;
+      document.getElementById('toggle-cam-btn').textContent = '⏸️ Tạm dừng';
+      rafId = requestAnimationFrame(inferenceLoop);
+    });
+
+    document.getElementById('mirror-btn').addEventListener('click', () => {
+      isMirrored = !isMirrored;
+      video.classList.toggle('mirror-video', isMirrored);
+    });
+
+    const colorOrderBtn = document.getElementById('color-order-btn');
+    colorOrderBtn.addEventListener('click', () => {
+      useBGR = !useBGR;
+      colorOrderBtn.textContent = `🎨 Hệ màu: ${useBGR ? 'BGR (OpenCV)' : 'RGB (Chuẩn)'}`;
+      colorOrderBtn.classList.toggle('active-toggle', useBGR);
+    });
+
+    const flipInferBtn = document.getElementById('flip-infer-btn');
+    flipInferBtn.addEventListener('click', () => {
+      flipYoloInput = !flipYoloInput;
+      flipInferBtn.textContent = `🔄 Chiều ảnh YOLO: ${flipYoloInput ? 'Lật ngược' : 'Gốc'}`;
+      flipInferBtn.classList.toggle('active-toggle', flipYoloInput);
+    });
+
+    const autoSnapBtn = document.getElementById('auto-snap-toggle');
+    autoSnapBtn.addEventListener('click', () => {
+      autoSnapshotEnabled = !autoSnapshotEnabled;
+      autoSnapBtn.textContent = `📸 Tự động chụp: ${autoSnapshotEnabled ? 'BẬT' : 'TẮT'}`;
+      autoSnapBtn.classList.toggle('active-toggle', autoSnapshotEnabled);
+    });
+
+    document.getElementById('open-gallery-btn').addEventListener('click', () => {
+      document.getElementById('gallery-modal').classList.add('active');
+    });
+    document.getElementById('view-all-photos-btn').addEventListener('click', () => {
+      document.getElementById('gallery-modal').classList.add('active');
+    });
+    document.getElementById('close-gallery-btn').addEventListener('click', () => {
+      document.getElementById('gallery-modal').classList.remove('active');
+    });
+    document.getElementById('close-lightbox-btn').addEventListener('click', () => {
+      document.getElementById('lightbox-modal').classList.remove('active');
+    });
+    document.getElementById('clear-gallery-btn').addEventListener('click', () => {
+      alertLogs = [];
+      saveLogsToStorage();
+      renderHistoryTableAndGallery();
+    });
+
+    document.getElementById('alarm-delay-slider').addEventListener('input', (e) => {
+      alarmDelaySec = parseFloat(e.target.value);
+      document.getElementById('delay-val').textContent = `${alarmDelaySec.toFixed(1)} giây`;
+    });
+    document.getElementById('conf-slider').addEventListener('input', (e) => {
+      confThreshold = parseInt(e.target.value, 10) / 100;
+      document.getElementById('conf-val').textContent = `${e.target.value}%`;
+    });
+    document.getElementById('vol-slider').addEventListener('input', (e) => {
+      soundVolume = parseInt(e.target.value, 10) / 100;
+      document.getElementById('vol-val').textContent = `${e.target.value}%`;
+    });
+
+    function updateSessionClock() {
+      const sec = Math.floor((Date.now() - sessionStartTime) / 1000);
+      const m = String(Math.floor(sec / 60)).padStart(2, '0');
+      const s = String(sec % 60).padStart(2, '0');
+      document.getElementById('kpi-duration').textContent = `${m}:${s}`;
+    }
+
+    document.getElementById('export-csv-btn').addEventListener('click', () => {
+      if (alertLogs.length === 0) return;
+      const rows = [
+        ['Thoi gian', 'Hanh vi mat tap trung', 'Do tin cay (%)', 'Thoi luong'],
+        ...alertLogs.map(r => [r.timeStr, r.behavior, r.confPct, r.duration])
+      ];
+      const csvContent = 'data:text/csv;charset=utf-8,\uFEFF' + rows.map(e => e.join(',')).join('\n');
+      const link = document.createElement('a');
+      link.setAttribute('href', encodeURI(csvContent));
+      link.setAttribute('download', 'nhat_ky_canh_bao_lai_xe.csv');
+      link.click();
+    });
+
+    document.getElementById('clear-log-btn').addEventListener('click', () => {
+      alertLogs = [];
+      saveLogsToStorage();
+      renderHistoryTableAndGallery();
+    });
+  </script>
+</body>
+</html>
